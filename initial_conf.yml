@@ -1,0 +1,168 @@
+variables :
+    RB_EXP_NAME: first_try
+    LSF_FLAGS:
+      e: $RB_OUT_PATH/logs/%J.stderr
+      o: $RB_OUT_PATH/logs/%J.stdout
+    RB_DEVICES: auto
+    RB_OUT_PATH : $RB_RESULT_DIR/$RB_EXP_PREFIX
+    RB_EXP_PREFIX : ${RB_TIMESTAMP}_${RB_ID}_${RB_EXP_NAME}
+    RB_INPUT_HW: [200, 80]
+
+initializer:
+  factory: bolt.initializers.default.Initializer
+  params:
+    filepath: $RB_OUT_PATH
+    prefix: ${RB_EXP_PREFIX}_
+
+factory: bolt.rb_keras.experiment.Experiment
+params:
+  model_builder:
+    factory: bolt.models.SequentialModel.model_builder
+    params:
+        input_params :
+            height_width : $RB_INPUT_HW
+            channels : 3
+        decorator:
+            factory: bolt.models.decorators.AdvancedChain
+            params:
+                DistributeInTime:
+                  layers_until: lstm
+        model_processors:
+          - function: bolt.models.processors.summary
+        id : IDNet
+        layers:
+          - factory:  tensorflow.keras.layers.Conv2D
+            params: &conv_params
+              filters: 32
+              kernel_size : 3
+              activation: relu
+              padding: valid
+              name: conv1
+          - factory: tensorflow.keras.layers.Conv2D
+            params:
+              <<: *conv_params
+              name: conv2
+          - factory:  tensorflow.keras.layers.MaxPooling2D
+            params:
+              pool_size: 2
+              name: pool1
+          - factory:  tensorflow.keras.layers.Flatten
+            params:
+              name: flatten
+          - factory:  tensorflow.keras.layers.LSTM
+            params:
+              ....
+              name: lstm
+          - factory:  tensorflow.keras.layers.Dense
+            params:
+              units: 2 # number of classes
+              activation: softmax
+              name: labels
+
+  data_generators:
+      factory : bolt.data.GenericGeneratorFactory
+      params :
+        train:
+          sample_listing.params.zip_path: [train_zip1, train_zip2]
+          sample_listing.params.label_path: [train_lbl1, train_lbl2]
+        validation:
+          sampling_generator: ordered
+        defaults:
+          batch_size: 4
+          sampling_generator: random
+          sample_listing:
+             factory: my.sample.Listing
+             params:
+                zip_path: [validation_zip1, validation_zip2]
+                label_path: [validation_lbl1, validation_lbl2]
+          graph:
+            patch_reader1:
+                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                inputs:
+                    zip_file_path: sample.zip1
+                    image_specifier: sample.image1
+            patch_reader2:
+                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                inputs:
+                    zip_file_path: sample.zip2
+                    image_specifier: sample.image2
+            patch_reader3:
+                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                inputs:
+                    zip_file_path: sample.zip3
+                    image_specifier: sample.image3
+            resize:
+              factory: bolt.data.processing.Resize
+              params:
+                  output_shape: $RB_INPUT_HW
+                  mapping:
+                    image1: image_transform
+                    image2: image_transform
+                    image3: image_transform
+              inputs:
+                image1: patch_reader1
+                image2: patch_reader2
+                image3: patch_reader3
+            create_batch:
+                lambda: "image1,image2,image3: np.stack((image1,image2,image3), axis=?)" # result: (3, h, w, ch)
+                inputs: resize
+            image_norm:
+              function: bolt.data.processing.image_normalization
+              inputs: create_batch
+            create_labels:
+               function: my.label.creator
+               inputs: sample.ids  # dict(ids=[2,6,2])  --->   one-hot represeantation [[0,1], [1,0], [0,1]]  (2 classes: not_my_object, my_object)
+            outputs:
+              image: create_batch
+              labels: create_labels
+          network_outputs: [labels]
+
+  
+  train_params :
+      steps: 50
+      epochs: 1
+      optimizer:
+          factory: tensorflow.keras.optimizers.Adam
+          params:
+              lr: 0.001
+              beta_1: 0.99
+              beta_2: 0.999
+              epsilon: 1.0e-6
+      loss:
+        factory: bolt.rb_keras.objectives.CategoricalCrossEntropy
+
+  
+  validation_params:
+      activated: false
+      callbacks :
+          - factory: bolt.rb_keras.callbacks.core.ModelCheckpoint
+            params:
+              filepath: $RB_OUT_PATH/models/${RB_EXP_PREFIX}_model.hdf5
+              mode: min
+              monitor: val_loss
+              save_best_only: true
+              verbose: 1
+          #- factory: tensorflow.keras.callbacks.ReduceLROnPlateau
+          #  params:
+          #    cooldown: 1
+          #    patience: 3
+          #    min_delta: 0.05
+          #    mode: min
+          #    monitor: all_classes_LAMR
+          #    factor: 0.1
+          #    verbose: 1
+          #    min_lr: 1.0e-06
+          - factory: bolt.rb_keras.callbacks.savelogger.SaveLogger
+            params:
+              extension: csv
+              separator: ;
+              filename: $RB_OUT_PATH/logs/${RB_EXP_PREFIX}_log
+
+use_multiprocessing: false
+
+backend_flags:
+        backend: tensorflow
+        eager_mode: false
+        image_data_format: channels_last
+        th_flags: dnn.conv.algo_fwd=guess_once, dnn.conv.algo_bwd_filter=guess_once, dnn.conv.algo_bwd_data=guess_once, floatX=float32, optimizer_including=cudnn, mode=FAST_RUN,
+        tf_flags: null
