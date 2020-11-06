@@ -47,6 +47,7 @@ def check_border(pt1, pt2, img):
 
 
 def run_patcher(dataset_path, overlap, output_root):
+    overlap = float(overlap)
     if output_root is None:
         output_root = os.path.join(dataset_path, 'output')
     if not os.path.isdir(output_root):
