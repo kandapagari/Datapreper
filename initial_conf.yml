@@ -68,28 +68,28 @@ params:
         validation:
           sampling_generator: ordered
         defaults:
-          batch_size: 4
+          batch_size: 64
           sampling_generator: random
           sample_listing:
-             factory: my.sample.Listing
+             factory: bolt.applications.deep_temporal_learning.data.sample_listings.MOTSampleListing
              params:
                 zip_path: [validation_zip1, validation_zip2]
                 label_path: [validation_lbl1, validation_lbl2]
           graph:
             patch_reader1:
-                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                factory: data.processing.readers.ZipReader
                 inputs:
-                    zip_file_path: sample.zip1
+                    zip_file_path: sample.zip
                     image_specifier: sample.image1
             patch_reader2:
-                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                factory: data.processing.readers.ZipReader
                 inputs:
-                    zip_file_path: sample.zip2
+                    zip_file_path: sample.zip
                     image_specifier: sample.image2
             patch_reader3:
-                factory: data_generators.generic_generator.readers.zipreader.ZipReader
+                factory: data.processing.readers.ZipReader
                 inputs:
-                    zip_file_path: sample.zip3
+                    zip_file_path: sample.zip
                     image_specifier: sample.image3
             resize:
               factory: bolt.data.processing.Resize
